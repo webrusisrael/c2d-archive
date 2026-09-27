@@ -1,1 +1,27 @@
 CDX dump ok, bytes=8989112
+targets to fetch: 1335
+OK 6358 site/cPanel_magic_revision_1616517441/unprotected/cpanel/fonts/open_sans/open_sans.min.css
+OK 5617 site/cPanel_magic_revision_1620208684/unprotected/cpanel/images/cpanel-logo.svg
+OK 1026 site/cPanel_magic_revision_1620208684/unprotected/cpanel/images/notice-error.png
+OK 142431 site/cPanel_magic_revision_1661285974/unprotected/cpanel/style_v2_optimized.css
+OK 609 site/chatnew/flags/us.png
+OK 431 site/chatnew/flags/il.png
+OK 13989 site/chatnew/skin_default/style_1.css
+OK 19812 site/chatnew/incl/blab.js
+OK 16043087 site/audio/Click2Dance_2012_Dance_MustMix-Mixed_by_VaXman.mp3
+OK 961 site/embed/images/cell.jpg
+OK 5375 site/embed/images/footer.jpg
+OK 10818 site/embed/images/header-acw.jpg
+OK 1498 site/embed/images/Chat.jpg
+OK 582 site/embed/images/index_05.jpg
+OK 1578 site/embed/images/2site.jpg
+OK 335 site/embed/images/index_06.jpg
+OK 365 site/embed/images/index_10.jpg
+OK 357 site/embed/images/index_11.jpg
+OK 363 site/embed/images/index_13.jpg
+OK 595 site/embed/images/index_14.jpg
+OK 779 site/embed/images/index_16.jpg
+OK 312 site/embed/images/index_17.jpg
+OK 365 site/embed/images/index_03.jpg
+OK 477 site/embed/images/index_21.jpg
+OK 321 site/embed/images/index_18.jpg
