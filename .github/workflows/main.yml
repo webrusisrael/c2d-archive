@@ -83,13 +83,22 @@ jobs:
               print("CDX request failed:", st); sys.exit(1)
           rows = json.loads(data)
           rows = rows[1:] if rows else []
+          # second pass: theme assets and uploads, any year, query strings allowed
+          for prefix in ("wp-content/themes/strip/", "wp-content/uploads/2026/"):
+              cdx2 = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN + "/" + prefix
+                      + "*&output=json&fl=original,timestamp,statuscode,mimetype,length"
+                      + "&filter=statuscode:200&to=" + TO)
+              d2, st2 = get(cdx2, tries=8)
+              if d2:
+                  r2 = json.loads(d2)
+                  rows.extend(r2[1:] if r2 else [])
           latest = {}
           dropped = 0
           for original, ts, code, mime, length in rows:
               p = urllib.parse.urlsplit(original)
-              if p.query:
-                  continue
               path = p.path or "/"
+              if p.query and not path.startswith(("/wp-content/themes/strip/", "/wp-content/uploads/")):
+                  continue
               # one spelling for percent-codes, so upper/lower duplicates merge
               path = re.sub(r"%[0-9A-Fa-f]{2}", lambda m: m.group(0).upper(), path)
               if any(s in path for s in SKIP) or path.endswith(("/embed/", "/amp/")):
