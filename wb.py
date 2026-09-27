@@ -1,179 +1,176 @@
-import json, os, re, subprocess, sys, time, urllib.parse, urllib.request, urllib.error
-from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
+import html as htmlmod
+import json, os, re, subprocess, sys, time, random, urllib.parse, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DOMAIN = "click2dance.co.il"
-FROM = "20260201"
-TO = "20260620"
 OUT = "site"
-WORKERS = 4
+WORKERS = 3
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
-SKIP = ("/wp-json", "/xmlrpc.php", "/wp-admin", "/wp-login", "/wp-cron",
-        "/wp-includes/", "/wp-content/plugins/", "/wp-content/cache/",
-        "/feed", "/trackback", "/tag/", "/author/", "/comments")
-MEDIA = (".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".avif", ".ico",
-         ".webm", ".mp4", ".mp3", ".woff2", ".woff", ".ttf", ".otf", ".pdf")
+ASSET_EXT = (".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".avif", ".ico",
+             ".webm", ".mp4", ".mp3", ".woff2", ".woff", ".ttf", ".otf",
+             ".css", ".js")
 
 def get(url, tries=6):
-    delay = 2
+    delay = 4
     for _ in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=90) as r:
-                return r.read(), r.status
+            with urllib.request.urlopen(req, timeout=180) as r:
+                body = r.read()
+                time.sleep(random.uniform(0.5, 1.1))
+                return body, r.status
         except urllib.error.HTTPError as e:
             if e.code in (404, 403, 410):
+                time.sleep(random.uniform(0.4, 0.9))
                 return None, e.code
-            if e.code == 429:
-                time.sleep(min(delay * 3, 45)); delay = min(delay * 2, 45)
-            else:
-                time.sleep(delay); delay = min(delay * 2, 20)
+            time.sleep(delay); delay = min(delay * 2, 90)
         except Exception:
-            time.sleep(delay); delay = min(delay * 2, 20)
+            time.sleep(delay); delay = min(delay * 2, 90)
     return None, 0
 
-def is_media(path):
-    return path.lower().endswith(MEDIA)
-
-def local_path(path):
-    local = urllib.parse.unquote(path)
-    if local.endswith("/"):
-        local += "index.html"
-    elif "." not in os.path.basename(local):
-        local += "/index.html"
-    return os.path.join(OUT, local.lstrip("/").replace("..", "_"))
-
 def push(msg):
-    subprocess.run(["git", "add", "-A"], check=False)
+    subprocess.run(["git", "add", "-A"], capture_output=True)
     r = subprocess.run(["git", "commit", "-m", msg], capture_output=True)
     if r.returncode == 0:
-        for _ in range(3):
+        for _ in range(4):
             if subprocess.run(["git", "push"]).returncode == 0:
                 return
-            subprocess.run(["git", "pull", "--rebase"], check=False)
+            subprocess.run(["git", "pull", "--rebase"], capture_output=True)
 
-cdx = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN
-       + "/*&output=json&fl=original,timestamp,statuscode,mimetype,length"
-       + "&filter=statuscode:200&from=" + FROM + "&to=" + TO)
-data, st = get(cdx, tries=8)
-if not data:
-    print("CDX request failed:", st); sys.exit(1)
-rows = json.loads(data)
-rows = rows[1:] if rows else []
-# second pass: theme assets and uploads, any year, query strings allowed
-for prefix in ("wp-content/themes/strip/", "wp-content/uploads/2026/"):
-    cdx2 = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN + "/" + prefix
-            + "*&output=json&fl=original,timestamp,statuscode,mimetype,length"
-            + "&filter=statuscode:200&to=" + TO)
-    d2, st2 = get(cdx2, tries=8)
-    if d2:
-        r2 = json.loads(d2)
-        rows.extend(r2[1:] if r2 else [])
-latest = {}
-dropped = 0
-for original, ts, code, mime, length in rows:
-    p = urllib.parse.urlsplit(original)
-    path = p.path or "/"
-    if p.query and not path.startswith(("/wp-content/themes/strip/", "/wp-content/uploads/")):
-        continue
-    # one spelling for percent-codes, so upper/lower duplicates merge
-    path = re.sub(r"%[0-9A-Fa-f]{2}", lambda m: m.group(0).upper(), path)
-    if any(s in path for s in SKIP) or path.endswith(("/embed/", "/amp/")):
-        dropped += 1; continue
-    if re.search(r"/page/\d+", path) or re.match(r"^/\d{4}(/|$)", path):
-        dropped += 1; continue
-    if not is_media(path):
-        # pages live at the root; deeper non-media paths are attachment pages and junk
-        segs = [s for s in path.split("/") if s]
-        if len(segs) >= 2 and not path.startswith("/wp-content/"):
-            dropped += 1; continue
-        # WordPress canonical form ends with a slash
-        if not path.endswith("/") and "." not in os.path.basename(path):
-            path += "/"
-    try:
-        if int(length) > 80 * 1024 * 1024:
-            dropped += 1; continue
-    except Exception:
-        pass
-    if path not in latest or ts > latest[path][1]:
-        latest[path] = (original, ts)
+def log(line):
+    with open("fetch_log.txt", "a", encoding="utf-8") as f:
+        f.write(line + "\n")
 
-def bucket(path):
-    if not is_media(path):
-        return 0                      # pages, css, js, sitemaps
-    if re.search(r"-\d+x\d+\.[a-z0-9]+$", path.lower()):
-        return 2                      # WordPress thumbnails
-    return 1                          # original media
-total = len(latest)
-print("unique files:", total, "(dropped as junk:", dropped, "snapshots)"); sys.stdout.flush()
+def looks_html(body, ext):
+    if ext in (".css", ".js") or ext in ASSET_EXT:
+        head = body[:300].lstrip().lower()
+        return head.startswith(b"<!doctype") or head.startswith(b"<html") or b"wayback machine" in head
+    return False
 
-os.makedirs(OUT, exist_ok=True)
-new_manifest = not os.path.exists("manifest.tsv")
-manifest = open("manifest.tsv", "a", encoding="utf-8")
-if new_manifest:
-    manifest.write("local_path\toriginal_url\ttimestamp\n")
-fails = []
-done = 0
-fresh = 0
+# ---------- phase 0: full-domain CDX dump, no filters ----------
+if not os.path.exists("cdx_domain.json"):
+    cdx = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN
+           + "&matchType=domain&output=json"
+           + "&fl=original,timestamp,statuscode,mimetype,length&limit=150000")
+    data, st = get(cdx, tries=8)
+    if data:
+        open("cdx_domain.json", "wb").write(data)
+        log("CDX dump ok, bytes=" + str(len(data)))
+    else:
+        log("CDX dump FAILED status=" + str(st))
+    push("cdx domain dump")
 
-def report():
-    with open("report.txt", "w", encoding="utf-8") as r:
-        r.write("total " + str(total) + "\n")
-        r.write("done " + str(done) + "\n")
-        r.write("failed " + str(len(fails)) + "\n")
-        r.write("\n".join(fails))
-
-def fetch(item):
-    path, (original, ts) = item
-    body, st = get("https://web.archive.org/web/" + ts + "id_/" + original)
-    return path, original, ts, body, st
-
-start = time.time()
-for phase, label in ((0, "pages"), (1, "media"), (2, "thumbnails")):
-    todo = []
-    for path, val in sorted(latest.items()):
-        if bucket(path) != phase:
+cdx_urls = set()
+try:
+    rows = json.load(open("cdx_domain.json", encoding="utf-8", errors="replace"))
+    for row in rows[1:]:
+        orig, ts, code, mime = row[0], row[1], row[2], row[3]
+        if code != "200" or "text/html" in mime:
             continue
-        full = local_path(path)
-        if os.path.exists(full) and os.path.getsize(full) > 0:
-            done += 1
+        if "/wp-includes/" in orig or "/wp-content/plugins/" in orig or "/wp-content/cache/" in orig:
             continue
-        todo.append((path, val))
-    print("phase", label, "-", len(todo), "to download"); sys.stdout.flush()
-    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        queue = iter(todo)
-        pending = set()
-        for _ in range(WORKERS):
-            nxt = next(queue, None)
-            if nxt:
-                pending.add(ex.submit(fetch, nxt))
-        while pending:
-            finished, pending = wait(pending, return_when=FIRST_COMPLETED)
-            for fut in finished:
-                path, original, ts, body, st = fut.result()
-                if body is None:
-                    fails.append(str(st) + "\t" + original)
-                else:
-                    full = local_path(path)
-                    os.makedirs(os.path.dirname(full) or OUT, exist_ok=True)
-                    with open(full, "wb") as f:
-                        f.write(body)
-                    manifest.write(full[len(OUT) + 1:] + "\t" + original + "\t" + ts + "\n")
-                    done += 1
-                fresh += 1
-                if fresh % 25 == 0:
-                    rate = fresh / max(time.time() - start, 1)
-                    print(done, "of", total, "-", round(rate, 2), "files/s"); sys.stdout.flush()
-                if fresh % 150 == 0:
-                    manifest.flush(); report()
-                    push("progress " + str(done) + " of " + str(total))
-                nxt = next(queue, None)
-                if nxt:
-                    pending.add(ex.submit(fetch, nxt))
-    manifest.flush(); report()
-    push(label + " ready")
-    print("PHASE DONE:", label); sys.stdout.flush()
+        low = orig.lower().split("?")[0]
+        if any(low.endswith(e) for e in ASSET_EXT):
+            cdx_urls.add(orig)
+except Exception as e:
+    log("CDX parse error: " + repr(e))
 
-manifest.close()
-report()
-push("wayback dump complete: " + str(done) + " of " + str(total))
-print("done, failed:", len(fails))
+# ---------- phase 1: собрать все ссылки на ассеты из скачанных страниц ----------
+ref_urls = set()
+pat = re.compile(r'https?://(?:www\.)?click2dance\.co\.il/[^\s"\'<>()\\]+')
+for root, _, files in os.walk(OUT):
+    for fn in files:
+        if not fn.endswith(".html"):
+            continue
+        try:
+            text = open(os.path.join(root, fn), encoding="utf-8", errors="replace").read()
+        except Exception:
+            continue
+        text = htmlmod.unescape(text)
+        for u in pat.findall(text):
+            u = u.rstrip(".,);'\"")
+            ref_urls.add(u)
+
+def savepath_of(u):
+    p = urllib.parse.urlparse(u)
+    path = urllib.parse.unquote(p.path)
+    ext = os.path.splitext(path.split("?")[0])[1].lower()
+    if ext not in ASSET_EXT:
+        return None, None
+    return os.path.join(OUT, path.lstrip("/")), ext
+
+targets = {}
+def add(u):
+    if "/wp-content/plugins/" in u or "/wp-includes/" in u or "/wp-content/cache/" in u:
+        return
+    sp, ext = savepath_of(u)
+    if not sp:
+        return
+    if os.path.exists(sp) and os.path.getsize(sp) > 0:
+        return
+    targets.setdefault(sp, {"ext": ext, "urls": []})
+    if u not in targets[sp]["urls"]:
+        targets[sp]["urls"].append(u)
+
+for u in sorted(ref_urls):
+    add(u)
+for u in sorted(cdx_urls):
+    add(u)
+for name in ("style", "style_service", "style_city", "style_strip",
+             "service-pages", "blog-single"):
+    base = "https://click2dance.co.il/wp-content/themes/strip/assets/css/" + name + ".css"
+    add(base + "?ver=1.0"); add(base)
+add("https://click2dance.co.il/wp-content/themes/strip/assets/js/main.js?ver=1.0")
+
+# варианты запроса: как есть, без query, с ?ver=1.0
+for sp, t in targets.items():
+    extra = []
+    for u in list(t["urls"]):
+        bare = u.split("?")[0]
+        if bare not in t["urls"] and bare not in extra:
+            extra.append(bare)
+        if t["ext"] in (".css", ".js"):
+            v = bare + "?ver=1.0"
+            if v not in t["urls"] and v not in extra:
+                extra.append(v)
+    t["urls"].extend(extra)
+
+total = len(targets)
+log("targets to fetch: " + str(total))
+print("targets:", total, flush=True)
+
+# ---------- phase 2: playback fetch ----------
+def fetch_one(sp, t):
+    last = 0
+    for u in t["urls"]:
+        for stamp in ("20260615", "2026", "0"):
+            wb = "https://web.archive.org/web/" + stamp + "id_/" + u
+            body, code = get(wb, tries=3)
+            last = code
+            if body and code == 200 and not looks_html(body, t["ext"]):
+                os.makedirs(os.path.dirname(sp), exist_ok=True)
+                open(sp, "wb").write(body)
+                return sp, "OK", u, len(body)
+    return sp, "MISS", t["urls"][0], last
+
+done = ok = 0
+items = sorted(targets.items())
+with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+    futs = [ex.submit(fetch_one, sp, t) for sp, t in items]
+    for fu in as_completed(futs):
+        sp, status, u, info = fu.result()
+        done += 1
+        if status == "OK":
+            ok += 1
+            log("OK " + str(info) + " " + sp)
+        else:
+            log("MISS code=" + str(info) + " " + u)
+        if done % 25 == 0:
+            push("assets " + str(done) + " of " + str(total))
+            print(done, "/", total, "ok:", ok, flush=True)
+
+with open("report_v7.txt", "w") as f:
+    f.write("targets " + str(total) + "\n")
+    f.write("fetched " + str(ok) + "\n")
+    f.write("missing " + str(total - ok) + "\n")
+push("v7 complete: " + str(ok) + " of " + str(total))
