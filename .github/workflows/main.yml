@@ -9,7 +9,7 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -19,34 +19,55 @@ jobs:
 
       - name: Download click2dance.co.il from web.archive.org
         run: |
+          git config user.name "wayback-bot"
+          git config user.email "wayback-bot@users.noreply.github.com"
           cat > wb.py << 'PY'
-          import json, os, sys, time, urllib.parse, urllib.request, urllib.error
+          import json, os, re, subprocess, sys, time, urllib.parse, urllib.request, urllib.error
 
           DOMAIN = "click2dance.co.il"
           TO = "20260620"
           OUT = "site"
           UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
           SKIP = ("/wp-json", "/xmlrpc.php", "/wp-admin", "/wp-login", "/wp-cron", "/wp-includes/", "/feed")
+          MEDIA = (".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".avif", ".ico",
+                   ".webm", ".mp4", ".mp3", ".woff2", ".woff", ".ttf", ".otf", ".pdf")
 
-          def get(url, tries=7):
-              delay = 3
+          def get(url, tries=6):
+              delay = 2
               for _ in range(tries):
                   try:
                       req = urllib.request.Request(url, headers={"User-Agent": UA})
-                      with urllib.request.urlopen(req, timeout=180) as r:
+                      with urllib.request.urlopen(req, timeout=120) as r:
                           return r.read(), r.status
                   except urllib.error.HTTPError as e:
                       if e.code in (404, 403, 410):
                           return None, e.code
-                      time.sleep(delay); delay = min(delay * 2, 90)
+                      time.sleep(delay); delay = min(delay * 2, 60)
                   except Exception:
-                      time.sleep(delay); delay = min(delay * 2, 90)
+                      time.sleep(delay); delay = min(delay * 2, 60)
               return None, 0
+
+          def local_path(path):
+              local = urllib.parse.unquote(path)
+              if local.endswith("/"):
+                  local += "index.html"
+              elif "." not in os.path.basename(local):
+                  local += "/index.html"
+              return os.path.join(OUT, local.lstrip("/").replace("..", "_"))
+
+          def push(msg):
+              subprocess.run(["git", "add", "-A"], check=False)
+              r = subprocess.run(["git", "commit", "-m", msg], capture_output=True)
+              if r.returncode == 0:
+                  for _ in range(3):
+                      if subprocess.run(["git", "push"]).returncode == 0:
+                          return
+                      subprocess.run(["git", "pull", "--rebase"], check=False)
 
           cdx = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN
                  + "/*&output=json&fl=original,timestamp,statuscode,mimetype,length"
                  + "&filter=statuscode:200&to=" + TO)
-          data, st = get(cdx)
+          data, st = get(cdx, tries=8)
           if not data:
               print("CDX request failed:", st); sys.exit(1)
           rows = json.loads(data)
@@ -65,70 +86,90 @@ jobs:
               except Exception:
                   pass
               if path not in latest or ts > latest[path][1]:
-                  latest[path] = (original, ts, mime)
-          print("unique files:", len(latest)); sys.stdout.flush()
+                  latest[path] = (original, ts)
+
+          def bucket(path):
+              low = path.lower()
+              if not low.endswith(MEDIA):
+                  return 0                      # pages, css, js, sitemaps
+              if re.search(r"-\d+x\d+\.[a-z0-9]+$", low):
+                  return 2                      # WordPress thumbnails
+              return 1                          # original media
+          order = sorted(latest.items(), key=lambda kv: (bucket(kv[0]), kv[0]))
+          total = len(order)
+          print("unique files:", total); sys.stdout.flush()
 
           os.makedirs(OUT, exist_ok=True)
-          manifest = open("manifest.tsv", "w", encoding="utf-8")
-          manifest.write("local_path\toriginal_url\ttimestamp\tmime\n")
+          new_manifest = not os.path.exists("manifest.tsv")
+          manifest = open("manifest.tsv", "a", encoding="utf-8")
+          if new_manifest:
+              manifest.write("local_path\toriginal_url\ttimestamp\n")
           fails = []
-          n = 0
-          for path, (original, ts, mime) in sorted(latest.items()):
-              n += 1
-              url = "https://web.archive.org/web/" + ts + "id_/" + original
-              body, st = get(url)
+          done = 0
+          fresh = 0
+          pages_pushed = False
+
+          def report():
+              with open("report.txt", "w", encoding="utf-8") as r:
+                  r.write("total " + str(total) + "\n")
+                  r.write("done " + str(done) + "\n")
+                  r.write("failed " + str(len(fails)) + "\n")
+                  r.write("\n".join(fails))
+
+          for path, (original, ts) in order:
+              full = local_path(path)
+              if os.path.exists(full) and os.path.getsize(full) > 0:
+                  done += 1
+                  continue
+              if bucket(path) > 0 and not pages_pushed:
+                  pages_pushed = True
+                  manifest.flush(); report()
+                  push("pages ready")
+                  print("PAGES READY, media next"); sys.stdout.flush()
+              body, st = get("https://web.archive.org/web/" + ts + "id_/" + original)
               if body is None:
                   fails.append(str(st) + "\t" + original)
-                  continue
-              local = urllib.parse.unquote(path)
-              if local.endswith("/"):
-                  local += "index.html"
-              elif "." not in os.path.basename(local):
-                  local += "/index.html"
-              local = local.lstrip("/").replace("..", "_")
-              full = os.path.join(OUT, local)
-              os.makedirs(os.path.dirname(full) or OUT, exist_ok=True)
-              with open(full, "wb") as f:
-                  f.write(body)
-              manifest.write(local + "\t" + original + "\t" + ts + "\t" + (mime or "") + "\n")
-              if n % 20 == 0:
-                  print(n, "of", len(latest)); sys.stdout.flush()
-              time.sleep(0.7)
+              else:
+                  os.makedirs(os.path.dirname(full) or OUT, exist_ok=True)
+                  with open(full, "wb") as f:
+                      f.write(body)
+                  manifest.write(full[len(OUT) + 1:] + "\t" + original + "\t" + ts + "\n")
+                  done += 1
+              fresh += 1
+              if fresh % 25 == 0:
+                  print(done, "of", total); sys.stdout.flush()
+              if fresh % 300 == 0:
+                  manifest.flush(); report()
+                  push("progress " + str(done) + " of " + str(total))
+              time.sleep(0.25)
+
           manifest.close()
-          with open("report.txt", "w", encoding="utf-8") as r:
-              r.write("total " + str(len(latest)) + "\n")
-              r.write("saved " + str(len(latest) - len(fails)) + "\n")
-              r.write("failed " + str(len(fails)) + "\n")
-              r.write("\n".join(fails))
+          report()
+          push("wayback dump complete: " + str(done) + " of " + str(total))
           print("done, failed:", len(fails))
           PY
           python3 wb.py
 
       - name: Zip results
+        if: always()
         run: |
           cd site
-          zip -r -q ../pages.zip . -x "*.webp" "*.jpg" "*.jpeg" "*.png" "*.gif" "*.webm" "*.mp4" "*.woff2" "*.woff" "*.ttf" "*.ico" "*.pdf"
-          zip -r -q ../media.zip . -i "*.webp" "*.jpg" "*.jpeg" "*.png" "*.gif" "*.webm" "*.mp4" "*.woff2" "*.woff" "*.ttf" "*.ico" "*.pdf" || true
+          zip -r -q ../pages.zip . -x "*.webp" "*.jpg" "*.jpeg" "*.png" "*.gif" "*.svg" "*.avif" "*.ico" "*.webm" "*.mp4" "*.mp3" "*.woff2" "*.woff" "*.ttf" "*.otf" "*.pdf"
+          zip -r -q ../media.zip . -i "*.webp" "*.jpg" "*.jpeg" "*.png" "*.gif" "*.svg" "*.avif" "*.ico" "*.webm" "*.mp4" "*.mp3" "*.woff2" "*.woff" "*.ttf" "*.otf" "*.pdf" || true
           cd ..
-          cp manifest.tsv report.txt site/ 2>/dev/null || true
           ls -la *.zip || true
-          cat report.txt
+          cat report.txt || true
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: pages
           path: pages.zip
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: media
           path: media.zip
           if-no-files-found: ignore
-
-      - name: Save into repository
-        run: |
-          git config user.name "wayback-bot"
-          git config user.email "wayback-bot@users.noreply.github.com"
-          git add -A site manifest.tsv report.txt
-          git commit -m "Wayback dump of click2dance.co.il" || echo "nothing to commit"
-          git push
