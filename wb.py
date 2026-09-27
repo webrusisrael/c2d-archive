@@ -1,0 +1,169 @@
+import json, os, re, subprocess, sys, time, urllib.parse, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
+
+DOMAIN = "click2dance.co.il"
+TO = "20260620"
+OUT = "site"
+WORKERS = 4
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+SKIP = ("/wp-json", "/xmlrpc.php", "/wp-admin", "/wp-login", "/wp-cron",
+        "/wp-includes/", "/wp-content/plugins/", "/wp-content/cache/",
+        "/feed", "/trackback", "/tag/", "/author/", "/comments")
+MEDIA = (".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".avif", ".ico",
+         ".webm", ".mp4", ".mp3", ".woff2", ".woff", ".ttf", ".otf", ".pdf")
+
+def get(url, tries=6):
+    delay = 2
+    for _ in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return r.read(), r.status
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 403, 410):
+                return None, e.code
+            if e.code == 429:
+                time.sleep(min(delay * 3, 45)); delay = min(delay * 2, 45)
+            else:
+                time.sleep(delay); delay = min(delay * 2, 20)
+        except Exception:
+            time.sleep(delay); delay = min(delay * 2, 20)
+    return None, 0
+
+def is_media(path):
+    return path.lower().endswith(MEDIA)
+
+def local_path(path):
+    local = urllib.parse.unquote(path)
+    if local.endswith("/"):
+        local += "index.html"
+    elif "." not in os.path.basename(local):
+        local += "/index.html"
+    return os.path.join(OUT, local.lstrip("/").replace("..", "_"))
+
+def push(msg):
+    subprocess.run(["git", "add", "-A"], check=False)
+    r = subprocess.run(["git", "commit", "-m", msg], capture_output=True)
+    if r.returncode == 0:
+        for _ in range(3):
+            if subprocess.run(["git", "push"]).returncode == 0:
+                return
+            subprocess.run(["git", "pull", "--rebase"], check=False)
+
+cdx = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN
+       + "/*&output=json&fl=original,timestamp,statuscode,mimetype,length"
+       + "&filter=statuscode:200&to=" + TO)
+data, st = get(cdx, tries=8)
+if not data:
+    print("CDX request failed:", st); sys.exit(1)
+rows = json.loads(data)
+rows = rows[1:] if rows else []
+latest = {}
+dropped = 0
+for original, ts, code, mime, length in rows:
+    p = urllib.parse.urlsplit(original)
+    if p.query:
+        continue
+    path = p.path or "/"
+    # one spelling for percent-codes, so upper/lower duplicates merge
+    path = re.sub(r"%[0-9A-Fa-f]{2}", lambda m: m.group(0).upper(), path)
+    if any(s in path for s in SKIP) or path.endswith(("/embed/", "/amp/")):
+        dropped += 1; continue
+    if re.search(r"/page/\d+", path) or re.match(r"^/\d{4}(/|$)", path):
+        dropped += 1; continue
+    if not is_media(path):
+        # pages live at the root; deeper non-media paths are attachment pages and junk
+        segs = [s for s in path.split("/") if s]
+        if len(segs) >= 2 and not path.startswith("/wp-content/"):
+            dropped += 1; continue
+        # WordPress canonical form ends with a slash
+        if not path.endswith("/") and "." not in os.path.basename(path):
+            path += "/"
+    try:
+        if int(length) > 80 * 1024 * 1024:
+            dropped += 1; continue
+    except Exception:
+        pass
+    if path not in latest or ts > latest[path][1]:
+        latest[path] = (original, ts)
+
+def bucket(path):
+    if not is_media(path):
+        return 0                      # pages, css, js, sitemaps
+    if re.search(r"-\d+x\d+\.[a-z0-9]+$", path.lower()):
+        return 2                      # WordPress thumbnails
+    return 1                          # original media
+total = len(latest)
+print("unique files:", total, "(dropped as junk:", dropped, "snapshots)"); sys.stdout.flush()
+
+os.makedirs(OUT, exist_ok=True)
+new_manifest = not os.path.exists("manifest.tsv")
+manifest = open("manifest.tsv", "a", encoding="utf-8")
+if new_manifest:
+    manifest.write("local_path\toriginal_url\ttimestamp\n")
+fails = []
+done = 0
+fresh = 0
+
+def report():
+    with open("report.txt", "w", encoding="utf-8") as r:
+        r.write("total " + str(total) + "\n")
+        r.write("done " + str(done) + "\n")
+        r.write("failed " + str(len(fails)) + "\n")
+        r.write("\n".join(fails))
+
+def fetch(item):
+    path, (original, ts) = item
+    body, st = get("https://web.archive.org/web/" + ts + "id_/" + original)
+    return path, original, ts, body, st
+
+start = time.time()
+for phase, label in ((0, "pages"), (1, "media"), (2, "thumbnails")):
+    todo = []
+    for path, val in sorted(latest.items()):
+        if bucket(path) != phase:
+            continue
+        full = local_path(path)
+        if os.path.exists(full) and os.path.getsize(full) > 0:
+            done += 1
+            continue
+        todo.append((path, val))
+    print("phase", label, "-", len(todo), "to download"); sys.stdout.flush()
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        queue = iter(todo)
+        pending = set()
+        for _ in range(WORKERS):
+            nxt = next(queue, None)
+            if nxt:
+                pending.add(ex.submit(fetch, nxt))
+        while pending:
+            finished, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                path, original, ts, body, st = fut.result()
+                if body is None:
+                    fails.append(str(st) + "\t" + original)
+                else:
+                    full = local_path(path)
+                    os.makedirs(os.path.dirname(full) or OUT, exist_ok=True)
+                    with open(full, "wb") as f:
+                        f.write(body)
+                    manifest.write(full[len(OUT) + 1:] + "\t" + original + "\t" + ts + "\n")
+                    done += 1
+                fresh += 1
+                if fresh % 25 == 0:
+                    rate = fresh / max(time.time() - start, 1)
+                    print(done, "of", total, "-", round(rate, 2), "files/s"); sys.stdout.flush()
+                if fresh % 150 == 0:
+                    manifest.flush(); report()
+                    push("progress " + str(done) + " of " + str(total))
+                nxt = next(queue, None)
+                if nxt:
+                    pending.add(ex.submit(fetch, nxt))
+    manifest.flush(); report()
+    push(label + " ready")
+    print("PHASE DONE:", label); sys.stdout.flush()
+
+manifest.close()
+report()
+push("wayback dump complete: " + str(done) + " of " + str(total))
+print("done, failed:", len(fails))
