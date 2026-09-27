@@ -1,4 +1,5 @@
 total 202
-done 187
-failed 1
+done 200
+failed 2
 404	https://click2dance.co.il/wp-content/uploads/2026/02/%D7%97%D7%A9%D7%A4%D7%A0%D7%99%D7%95%D7%AA.webp
+404	https://click2dance.co.il/wp-content/uploads/2026/02/%D7%A8%D7%A7%D7%93%D7%A0%D7%99%D7%95%D7%AA-%D7%91%D7%A6%D7%A4%D7%95%D7%9F-300x169.webp
