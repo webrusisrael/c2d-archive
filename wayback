@@ -1,0 +1,134 @@
+name: Wayback download
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download click2dance.co.il from web.archive.org
+        run: |
+          cat > wb.py << 'PY'
+          import json, os, sys, time, urllib.parse, urllib.request, urllib.error
+
+          DOMAIN = "click2dance.co.il"
+          TO = "20260620"
+          OUT = "site"
+          UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+          SKIP = ("/wp-json", "/xmlrpc.php", "/wp-admin", "/wp-login", "/wp-cron", "/wp-includes/", "/feed")
+
+          def get(url, tries=7):
+              delay = 3
+              for _ in range(tries):
+                  try:
+                      req = urllib.request.Request(url, headers={"User-Agent": UA})
+                      with urllib.request.urlopen(req, timeout=180) as r:
+                          return r.read(), r.status
+                  except urllib.error.HTTPError as e:
+                      if e.code in (404, 403, 410):
+                          return None, e.code
+                      time.sleep(delay); delay = min(delay * 2, 90)
+                  except Exception:
+                      time.sleep(delay); delay = min(delay * 2, 90)
+              return None, 0
+
+          cdx = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN
+                 + "/*&output=json&fl=original,timestamp,statuscode,mimetype,length"
+                 + "&filter=statuscode:200&to=" + TO)
+          data, st = get(cdx)
+          if not data:
+              print("CDX request failed:", st); sys.exit(1)
+          rows = json.loads(data)
+          rows = rows[1:] if rows else []
+          latest = {}
+          for original, ts, code, mime, length in rows:
+              p = urllib.parse.urlsplit(original)
+              if p.query:
+                  continue
+              path = p.path or "/"
+              if any(s in path for s in SKIP) or path.endswith(("/embed/", "/amp/")):
+                  continue
+              try:
+                  if int(length) > 80 * 1024 * 1024:
+                      continue
+              except Exception:
+                  pass
+              if path not in latest or ts > latest[path][1]:
+                  latest[path] = (original, ts, mime)
+          print("unique files:", len(latest)); sys.stdout.flush()
+
+          os.makedirs(OUT, exist_ok=True)
+          manifest = open("manifest.tsv", "w", encoding="utf-8")
+          manifest.write("local_path\toriginal_url\ttimestamp\tmime\n")
+          fails = []
+          n = 0
+          for path, (original, ts, mime) in sorted(latest.items()):
+              n += 1
+              url = "https://web.archive.org/web/" + ts + "id_/" + original
+              body, st = get(url)
+              if body is None:
+                  fails.append(str(st) + "\t" + original)
+                  continue
+              local = urllib.parse.unquote(path)
+              if local.endswith("/"):
+                  local += "index.html"
+              elif "." not in os.path.basename(local):
+                  local += "/index.html"
+              local = local.lstrip("/").replace("..", "_")
+              full = os.path.join(OUT, local)
+              os.makedirs(os.path.dirname(full) or OUT, exist_ok=True)
+              with open(full, "wb") as f:
+                  f.write(body)
+              manifest.write(local + "\t" + original + "\t" + ts + "\t" + (mime or "") + "\n")
+              if n % 20 == 0:
+                  print(n, "of", len(latest)); sys.stdout.flush()
+              time.sleep(0.7)
+          manifest.close()
+          with open("report.txt", "w", encoding="utf-8") as r:
+              r.write("total " + str(len(latest)) + "\n")
+              r.write("saved " + str(len(latest) - len(fails)) + "\n")
+              r.write("failed " + str(len(fails)) + "\n")
+              r.write("\n".join(fails))
+          print("done, failed:", len(fails))
+          PY
+          python3 wb.py
+
+      - name: Zip results
+        run: |
+          cd site
+          zip -r -q ../pages.zip . -x "*.webp" "*.jpg" "*.jpeg" "*.png" "*.gif" "*.webm" "*.mp4" "*.woff2" "*.woff" "*.ttf" "*.ico" "*.pdf"
+          zip -r -q ../media.zip . -i "*.webp" "*.jpg" "*.jpeg" "*.png" "*.gif" "*.webm" "*.mp4" "*.woff2" "*.woff" "*.ttf" "*.ico" "*.pdf" || true
+          cd ..
+          cp manifest.tsv report.txt site/ 2>/dev/null || true
+          ls -la *.zip || true
+          cat report.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pages
+          path: pages.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media
+          path: media.zip
+          if-no-files-found: ignore
+
+      - name: Save into repository
+        run: |
+          git config user.name "wayback-bot"
+          git config user.email "wayback-bot@users.noreply.github.com"
+          git add -A site manifest.tsv report.txt
+          git commit -m "Wayback dump of click2dance.co.il" || echo "nothing to commit"
+          git push
