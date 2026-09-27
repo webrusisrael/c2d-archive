@@ -2,6 +2,7 @@ import json, os, re, subprocess, sys, time, urllib.parse, urllib.request, urllib
 from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 
 DOMAIN = "click2dance.co.il"
+FROM = "20260201"
 TO = "20260620"
 OUT = "site"
 WORKERS = 4
@@ -52,7 +53,7 @@ def push(msg):
 
 cdx = ("https://web.archive.org/cdx/search/cdx?url=" + DOMAIN
        + "/*&output=json&fl=original,timestamp,statuscode,mimetype,length"
-       + "&filter=statuscode:200&to=" + TO)
+       + "&filter=statuscode:200&from=" + FROM + "&to=" + TO)
 data, st = get(cdx, tries=8)
 if not data:
     print("CDX request failed:", st); sys.exit(1)
