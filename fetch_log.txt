@@ -751,3 +751,28 @@ OK 66566 site/uploads/קרין-סמואל2.jpg
 OK 136496 site/uploads/רונה1.jpg
 OK 13625 site/uploads/רונה2-129x210.jpg
 OK 82625 site/uploads/רונה2.jpg
+OK 123214 site/uploads/קרין-סמואל1.jpg
+OK 111241 site/uploads/שחר1.jpg
+OK 8048 site/uploads/שחר2-129x210.jpg
+OK 51163 site/uploads/שחר2.jpg
+OK 36257 site/vr/pictures/az_1055_New York_Paloma Faith.jpg
+OK 17917 site/vr/pictures/az_124__Akon.jpg
+OK 116900 site/uploads/ישי.jpg
+OK 10538 site/vr/pictures/az_1296_Heaven_Timofey & Bartosz Brenes.jpg
+OK 251158 site/vr/pictures/az_1631_Get Shaky_The Ian Carey Project.jpg
+OK 114975 site/vr/pictures/az_1636_Love Comes Again_Tiesto.jpg
+OK 31458 site/vr/pictures/az_1839_Now Dance Anthems_Kylie Minogue.jpg
+OK 91017 site/vr/pictures/az_1909_Ganbareh_Sash.jpg
+MISS code=0 http://click2dance.co.il/vr/pictures/az_160_Du%20&%20Jeg%20(Remixes)_Amalie.jpg
+MISS code=0 http://click2dance.co.il/vr/pictures/az_1121__Richard%20Durand%20&%20JES.jpg
+OK 37120 site/vr/pictures/az_2138_httpClick2Dance.co.il_Nayer.jpg
+OK 14375 site/vr/pictures/az_2317__Manuel De La Mare, Luca Monticelli.jpg
+OK 72439 site/vr/pictures/az_2557_Survive_Laurent Wolf.jpg
+OK 29811 site/vr/pictures/az_2664__ .jpg
+OK 216332 site/vr/pictures/az_35_No Woman No Cry (DJ Kopernik Radio Remix)_Bob Marley.jpg
+MISS code=0 http://click2dance.co.il/vr/pictures/az_1948_Celebrate%20(The%20Love)_Zhi-Vago.jpg
+MISS code=0 http://click2dance.co.il/vr/pictures/az_2019_Click2dance.Co.Il_B%2052%27s%20&%20Dj%20Tonka.jpg
+OK 43316 site/vr/pictures/az_867_Romania 2010_Lora feat. Sonny Flame.jpg
+OK 55163 site/vr/pictures/az_870_Love Generation - Single_Love Generation.jpg
+MISS code=0 http://click2dance.co.il/vr/pictures/az_402__Dave%20Darell.jpg
+OK 51730 site/vr/pictures/az_B12714__Enrique Iglesias.jpg
