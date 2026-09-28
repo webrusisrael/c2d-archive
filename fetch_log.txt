@@ -776,3 +776,28 @@ OK 43316 site/vr/pictures/az_867_Romania 2010_Lora feat. Sonny Flame.jpg
 OK 55163 site/vr/pictures/az_870_Love Generation - Single_Love Generation.jpg
 MISS code=0 http://click2dance.co.il/vr/pictures/az_402__Dave%20Darell.jpg
 OK 51730 site/vr/pictures/az_B12714__Enrique Iglesias.jpg
+OK 50734 site/vr/pictures/az_B12729__Mike Candys.jpg
+OK 23845 site/vr/pictures/az_B1209__Taio Cruz.jpg
+OK 25723 site/vr/pictures/az_B430323__Robyn.jpg
+OK 139295 site/vr/pictures/az_B43110__Gilad Segev and Madboojah Project.jpg
+OK 5557 site/vr/pictures/az_B43119__2-12 Click2Dance 2010.jpg
+OK 5557 site/vr/pictures/az_B517396__Deep & White ft. Sonny Flame.jpg
+OK 34858 site/vr/pictures/c2d-volume.gif
+OK 55702 site/vr/pictures/l_beb286d7b6a44dfb89c1c35bb9a40a3f[1].jpg
+OK 94709 site/vr/pictures/vega[1].jpg
+OK 94192 site/vr/pictures/zikaron.jpg
+OK 105 site/wp-content/themes/mobile_pack_base/img/dahs.png
+MISS code=0 http://www.click2dance.co.il/vr/pictures/ii4463_COVER%5B1%5D.jpg
+OK 26924 site/vr/pictures/az_474_httpClick2Dance.co.il_DJ Ross Vs. Double You.jpg
+OK 1941 site/wp-content/themes/mobile_pack_base/style.css
+OK 3785 site/wp-content/themes/mobile_pack_base/style_structure.css
+MISS code=404 https://click2dance.co.il/wp-content/themes/strip/assets/css/service-pages.css?ver=1.0
+MISS code=404 https://click2dance.co.il/wp-content/themes/strip/assets/css/style_city.css?ver=1.0
+OK 82 site/wp-content/themes/mobile_pack_base/img/high.png
+OK 79 site/wp-content/themes/mobile_pack_base/img/shad.png
+MISS code=0 https://click2dance.co.il/wp-content/themes/strip/assets/images/גוגו-רקדניות-1.webp
+MISS code=0 https://click2dance.co.il/wp-content/themes/strip/assets/images/גוגו-רקדניות-2.webp
+MISS code=404 https://click2dance.co.il/wp-content/themes/strip/assets/css/style_strip.css?ver=1.0
+MISS code=0 https://click2dance.co.il/wp-content/themes/strip/assets/images/גוגו-רקדניות-3.webp
+MISS code=0 https://click2dance.co.il/wp-content/themes/strip/assets/images/חשפניות-1.webp
+MISS code=0 https://click2dance.co.il/wp-content/themes/strip/assets/images/חשפניות-2.webp
