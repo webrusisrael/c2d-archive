@@ -10,7 +10,7 @@ ASSET_EXT = (".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".avif", ".ico",
              ".webm", ".mp4", ".mp3", ".woff2", ".woff", ".ttf", ".otf",
              ".css", ".js")
 
-def get(url, tries=6):
+def get(url, tries=3):
     delay = 4
     for _ in range(tries):
         try:
@@ -23,9 +23,9 @@ def get(url, tries=6):
             if e.code in (404, 403, 410):
                 time.sleep(random.uniform(0.4, 0.9))
                 return None, e.code
-            time.sleep(delay); delay = min(delay * 2, 90)
+            time.sleep(delay); delay = min(delay * 2, 20)
         except Exception:
-            time.sleep(delay); delay = min(delay * 2, 90)
+            time.sleep(delay); delay = min(delay * 2, 20)
     return None, 0
 
 def push(msg):
@@ -100,8 +100,16 @@ def savepath_of(u):
     return os.path.join(OUT, path.lstrip("/")), ext
 
 targets = {}
+KNOWN_404 = set()
+if os.path.exists("fetch_log.txt"):
+    for line in open("fetch_log.txt", encoding="utf-8", errors="replace"):
+        if line.startswith("MISS code=404 "):
+            KNOWN_404.add(line.split(" ", 2)[2].strip())
+
 def add(u):
-    if "/wp-content/plugins/" in u or "/wp-includes/" in u or "/wp-content/cache/" in u:
+    if "/wp-content/uploads/2026/" not in u and "/wp-content/themes/strip/" not in u:
+        return
+    if u in KNOWN_404:
         return
     sp, ext = savepath_of(u)
     if not sp:
@@ -169,8 +177,8 @@ with ThreadPoolExecutor(max_workers=WORKERS) as ex:
             push("assets " + str(done) + " of " + str(total))
             print(done, "/", total, "ok:", ok, flush=True)
 
-with open("report_v7.txt", "w") as f:
+with open("report_v8.txt", "w") as f:
     f.write("targets " + str(total) + "\n")
     f.write("fetched " + str(ok) + "\n")
     f.write("missing " + str(total - ok) + "\n")
-push("v7 complete: " + str(ok) + " of " + str(total))
+push("v8 complete: " + str(ok) + " of " + str(total))
